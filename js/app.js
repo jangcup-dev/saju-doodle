@@ -1,6 +1,7 @@
 // 사주낙서 웹 화면. 모든 계산은 이 기기 안에서, 정보는 이 브라우저(localStorage)에만 저장.
 import { SajuCalc, analyze, daily, KCal, GZ, TenGod, TwelveStage, Relations, TimeCorrection, JasiMode, defaultBirth } from './engine.js';
 import { meanings, luck } from './phrases.js';
+import * as K from './keep.js';
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -18,6 +19,7 @@ const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 const qs = new URLSearchParams(location.search);
 const demo = qs.get('demo') ? Object.assign(defaultBirth(), { name: '예시', year: 1993, month: 8, day: 21, hour: 14, minute: 30, isMale: false }) : null;
 
+async function keepOnDevice() { if (demo || !S.profile) return; S.persisted = await K.requestPersist(); }
 const S = {
   profile: qs.get('empty') ? null : demo || store.get('profile', null),
   draft: null, editing: false,
@@ -25,7 +27,7 @@ const S = {
   day: today(), month: today().slice(0, 2),
   expanded: new Set(qs.get('expand') ? qs.get('expand').split(',') : store.get('expanded', ['풀이'])),
   done: new Set(store.get('done', [])),
-  sheet: null, error: null, cache: null,
+  sheet: null, error: null, cache: null, persisted: null,
 };
 
 function chart() {
@@ -259,6 +261,10 @@ function renderForm() {
     <section class="st form"><div class="hand" style="font-size:24px">계산 기준</div>
       ${sel('시간 보정', 'correction', [0, 1, 2], (v) => TimeCorrection[v])}${sel('자시 처리', 'jasi', [0, 1], (v) => JasiMode[v])}
       <div class="tiny soft">한국 표준시는 동경 135° 기준이라 서울에서는 실제 해의 위치보다 약 32분 빨라요. 대부분의 만세력은 경도 보정을 써요. 자시 처리는 학파마다 달라요.</div></section>
+    <section class="st w2 form"><div class="hand" style="font-size:24px">💾 백업</div>
+      <div class="small">${first ? '예전에 저장해 둔 백업 파일이 있으면 불러올 수 있어요.' : '폰을 바꾸거나 브라우저 기록을 지우기 전에 백업 파일을 저장해 두세요. 휴대폰에서는 공유 창이 열리니 카톡 ‘나에게’나 드라이브에 보내 두면 편해요.'}</div>
+      ${first ? '' : `<div class="tiny soft">이 기기에 오래 보관: ${S.persisted === true ? '켜짐 — 저장 공간이 부족해도 지우지 않아요' : S.persisted === false ? '브라우저가 아직 허락하지 않았어요 (홈 화면에 추가하면 허락되는 경우가 많아요)' : '이 브라우저는 지원하지 않아요'}</div>`}
+      <div class="row" style="flex-wrap:wrap">${first ? '' : '<button class="st btn" style="background:var(--mint)" data-act="backup">백업 파일 저장</button>'}<label class="st btn" style="background:var(--sky);display:inline-flex;align-items:center;cursor:pointer">백업 불러오기<input type="file" accept=".json,application/json" data-file="restore" hidden></label></div></section>
     <p class="small soft">🔒 계산은 모두 이 기기 안에서 하고, 입력한 정보는 이 브라우저에만 저장돼요. 어디로도 보내지 않아요. (브라우저 기록을 지우면 함께 지워질 수 있어요)</p>
     <div class="row">${first ? '<span class="grow"></span>' : '<button class="link hl" data-act="delete">기록 삭제</button><span class="grow"></span><button class="link" data-act="cancel">취소</button>'}<button class="st btn" data-act="save">${first ? '사주 세우기' : '저장'}</button></div>
   </div>`;
@@ -334,14 +340,28 @@ document.addEventListener('click', (e) => {
   else if (act === 'cancel') { S.editing = false; render(); }
   else if (act === 'set') { S.draft[t.dataset.k] = t.dataset.v === '1'; if (t.dataset.k === 'isLunar') S.draft.leapMonth = false; render(); }
   else if (act === 'save') {
-    try { SajuCalc.chart(S.draft); S.profile = { ...S.draft }; if (!demo) store.set('profile', S.profile); S.editing = false; S.section = 'today'; S.day = today(); render(); scrollTo(0, 0); }
+    try { SajuCalc.chart(S.draft); S.profile = { ...S.draft }; if (!demo) { store.set('profile', S.profile); keepOnDevice(); } S.editing = false; S.section = 'today'; S.day = today(); render(); scrollTo(0, 0); }
     catch (err) { S.error = err.message; render(); }
+  } else if (act === 'backup') {
+    const name = S.profile.name ? `-${S.profile.name.replace(/[\\/:*?"<>|]/g, '')}` : '';
+    K.saveFile(`사주낙서-백업${name}.json`, JSON.stringify({ app: 'saju-doodle', v: 1, savedAt: new Date().toISOString(), profile: S.profile, done: [...S.done] }, null, 1), 'application/json', '사주낙서 백업')
+      .then((r) => { if (r !== 'cancelled') { S.sheet = ['백업했어요', r === 'shared' ? '백업 파일을 보냈어요. 카톡 나에게·드라이브 등에 잘 보관하세요.' : '백업 파일을 다운로드 폴더에 저장했어요.']; render(); } });
   } else if (act === 'delete') {
     if (confirm('이 브라우저에 저장된 출생 정보를 지울까요? 되돌릴 수 없어요.')) { try { localStorage.removeItem('saju.profile'); } catch { } S.profile = null; S.draft = defaultBirth(); S.editing = false; render(); }
   }
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.dataset.file === 'restore' && e.target.files[0]) {
+    e.target.files[0].text().then((txt) => {
+      const o = JSON.parse(txt), p = Object.assign(defaultBirth(), o && o.profile);
+      SajuCalc.chart(p); // 잘못된 파일이면 여기서 오류
+      S.draft = p; S.editing = !!S.profile;
+      if (Array.isArray(o.done)) { o.done.filter((x) => typeof x === 'string').forEach((x) => S.done.add(x)); store.set('done', [...S.done].sort().slice(-400)); }
+      S.sheet = ['백업을 불러왔어요', `${p.name || '이름 없음'} · ${p.year}년 ${p.month}월 ${p.day}일 정보를 채웠어요. 확인하고 ${S.profile ? '저장' : '사주 세우기'}를 눌러 주세요.`]; render();
+    }).catch(() => { S.error = '백업 파일을 읽을 수 없어요. 사주낙서에서 저장한 .json 파일인지 확인해 주세요.'; render(); });
+    return;
+  }
   const f = e.target.dataset.field; if (!f || !S.draft) return;
   const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
   if (f === 'placeName') { S.draft.placeName = v; S.draft.longitude = PLACES.find((p) => p[0] === v)[1]; }
@@ -361,4 +381,5 @@ let lastToday = today().join('-');
 setInterval(() => { const t = today().join('-'); if (t !== lastToday) { if (S.day.join('-') === lastToday) S.day = today(); lastToday = t; render(); } }, 60000);
 
 render();
+keepOnDevice();
 if ('serviceWorker' in navigator && location.protocol !== 'file:' && !qs.get('nosw')) navigator.serviceWorker.register('./sw.js').catch(() => {});
