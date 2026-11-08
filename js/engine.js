@@ -623,10 +623,11 @@ function enrich(f, c, a) {
   else if (TenGod.group(f.stemGod) === TenGod.group(f.branchGod)) p1 += ' 겉과 속이 비슷한 결이라 마음먹은 대로 움직이기 쉬워요.';
 
   const noon = KCal.instant(...f.date, 12, 0);
-  const lon = Astro.sunLongitude(noon);
-  const termIdx = trunc(lon / 15) % 24;
-  const termStart = Astro.previousLongitude(noon, 15)[0];
-  const daysIntoTerm = trunc((noon - termStart) / 86400);
+  // 절기는 '그날 하루 안에 들어왔는지'로 판단: 그날 끝(23:59:59) 기준 절기를 찾고, 들어온 날짜(한국 시각)와 비교
+  const dayEnd = KCal.instant(...f.date, 23, 59) + 59;
+  const termIdx = trunc(Astro.sunLongitude(dayEnd) / 15) % 24;
+  const tsp = KCal.seoulParts(Astro.previousLongitude(dayEnd, 15)[0]);
+  const daysIntoTerm = KCal.dayNumber(...f.date) - KCal.dayNumber(tsp.year, tsp.month, tsp.day);
   const ctx = [`지금은 ${P.termNames[termIdx]} ${daysIntoTerm === 0 ? '당일' : '무렵'}이에요. ` + P.termText[termIdx]];
   const mp = f.monthPillar;
   const me = GZ.stemElement(ds), se = GZ.branchElement[mp.branch];
