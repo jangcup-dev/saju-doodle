@@ -156,11 +156,17 @@ export const KCal = (() => {
   const standardOffset = (t) => legalOffset(t) - (isDST(t) ? 3600 : 0);
 
   /** 한국 벽시계 날짜·시각 → 순간 */
+  /**
+   * 한국 벽시계 날짜·시각 → 순간. 맥(Foundation)·안드로이드(java.time)와 같은 규칙:
+   * - 시계가 건너뛴 시각(서머타임 시작 등): 바뀌기 전 오프셋으로 해석 (= 그만큼 뒤로 밀림)
+   * - 두 번 있었던 시각(서머타임 끝 등): 앞쪽(먼저 온) 순간
+   */
   function instant(y, m, d, h, mi) {
     const wall = Date.UTC(y, m - 1, d, h, mi) / 1000;
-    let t = wall - 9 * 3600;
-    for (let i = 0; i < 3; i++) t = wall - legalOffset(t);
-    return t;
+    const before = legalOffset(wall - 9 * 3600 - 6 * 3600), after = legalOffset(wall - 9 * 3600 + 6 * 3600);
+    const ok = [...new Set([before, after])].map((o) => wall - o).filter((t) => legalOffset(t) === wall - t);
+    if (ok.length) return Math.min(...ok);
+    return wall - before;
   }
   const utcMidnight = (y, m, d) => Date.UTC(y, m - 1, d) / 1000;
   function seoulParts(t) {
@@ -380,6 +386,14 @@ export const SajuCalc = {
     const gap = Math.min(instant - prevTerm, nextTerm - instant);
     if (!b.timeKnown && gap < 36 * 3600) warning = '생일이 절입일과 가까워서 태어난 시간에 따라 월주(또는 연주)가 달라질 수 있어요.';
     else if (gap < 2 * 3600) warning = '절입 시각과 2시간 이내라 출생 시각이 조금만 달라도 월주가 바뀔 수 있어요.';
+    // 서머타임·표준시가 바뀐 날: 시계에 없던 시각 / 두 번 있었던 시각
+    if (b.timeKnown) {
+      const wall = (t) => { const p = KCal.seoulParts(t); return [p.year, p.month, p.day, p.hour, p.minute].join(','); };
+      const want = [sy, sm, sd, b.hour, b.minute].join(',');
+      const clock = wall(instant) !== want ? '입력한 시각은 그날 시계를 앞당기면서(서머타임·표준시 변경) 실제로는 없던 시각이에요. 1시간(또는 30분) 늦은 시각으로 계산했으니 출생 기록을 다시 확인해 주세요.'
+        : (wall(instant + 3600) === want || wall(instant + 1800) === want) ? '입력한 시각은 그날 시계를 되돌리면서 두 번 있었던 시각이에요. 먼저 온 시각으로 계산했어요. 나중 시각이었다면 시주가 달라질 수 있어요.' : null;
+      if (clock) warning = warning ? warning + ' ' + clock : clock;
+    }
 
     const std = KCal.standardOffset(instant);
     const offset = b.correction === 0 ? std : b.correction === 1 ? b.longitude * 240 : b.longitude * 240 + Astro.equationOfTime(instant) * 60;
@@ -414,6 +428,10 @@ export const SajuCalc = {
     return [yp, new Pillar(((yp.stem % 5) * 2 + 2 + mi) % 10, (mi + 2) % 12)];
   },
   yearPillar: (y) => Pillar.of60(y - 4),
+  /** 그 순간이 속한 사주 연도 (입춘에 해가 바뀜. 1월 1일이나 설날이 아님) */
+  sajuYear(t) { const y = KCal.seoulParts(t).year; return SajuCalc.yearMonthPillars(t)[0].index60 === Pillar.of60(y - 4).index60 ? y : y - 1; },
+  /** 대운이 실제로 시작하는 해 (출생 순간 + 대운수 년) */
+  daeunStartYear: (c, startAge) => KCal.seoulParts(c.instant + startAge * 365.2425 * 86400).year,
 };
 
 // ───────────────────────── 분석

@@ -193,11 +193,11 @@ function renderChart(c, a) {
 function renderLuck(c, a) {
   const age = (Date.now() / 1000 - c.instant) / (365.2425 * 86400);
   let cur = -1; a.daeun.forEach((d, i) => { if (d.startAge <= age) cur = i; });
-  const ty = today()[0];
+  const ty = SajuCalc.sajuYear(Date.now() / 1000);
   return `<div class="gap">
     <div class="row" style="align-items:flex-end"><span class="hand" style="font-size:32px">대운</span><span class="tiny soft" style="padding-bottom:6px">10년마다 바뀌는 큰 흐름 · ${a.daeunForward ? '순행' : '역행'} · 대운수 ${a.daeunStart.toFixed(1)}</span></div>
     <section class="st" style="padding:10px">${a.daeun.map((d, i) => {
-      const sy = c.solarDate[0] + Math.trunc(d.startAge);
+      const sy = SajuCalc.daeunStartYear(c, d.startAge);
       return `<button class="du ${i === cur ? 'now' : i < cur ? 'past' : ''}" data-act="sheet" data-kind="daeun" data-i="${i}"><span class="pt"></span>
         <span style="width:76px"><span class="hand" style="font-size:19px">${Math.trunc(d.startAge)}–${Math.trunc(d.startAge) + 9}세</span><br><span class="tiny" style="opacity:.6">${sy}–${sy + 9}</span></span>
         ${stemCh(d.pillar.stem, 's40')}${branchCh(d.pillar.branch, 's40')}
@@ -257,7 +257,7 @@ function renderForm() {
       <label class="switch"><span class="grow">태어난 시간을 알아요</span><input type="checkbox" data-field="timeKnown" ${d.timeKnown ? 'checked' : ''}></label>
       ${d.timeKnown ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${sel('시', 'hour', range(0, 23), (v) => String(v).padStart(2, '0') + '시')}${sel('분', 'minute', range(0, 59), (v) => String(v).padStart(2, '0') + '분')}</div>` : ''}
       <div class="field"><label for="f-place">태어난 곳</label><select id="f-place" data-field="placeName">${opts(PLACES.map((p) => p[0]), d.placeName)}</select></div>
-      <div class="tiny soft">${d.timeKnown ? '당시 시계 기준으로 적어 주세요. 서머타임(1948–1960, 1987–1988년)과 그 시절 표준시는 자동으로 반영돼요.' : '시간을 모르면 시주 없이 연·월·일주로만 풀이해요.'}</div></section>
+      <div class="tiny soft">${d.timeKnown ? '당시 시계 기준으로 적어 주세요. 서머타임(1948–1951·1955–1960·1987–1988년)과 그 시절 표준시는 자동으로 반영돼요.' : '시간을 모르면 시주 없이 연·월·일주로만 풀이해요.'}</div></section>
     <section class="st form"><div class="hand" style="font-size:24px">계산 기준</div>
       ${sel('시간 보정', 'correction', [0, 1, 2], (v) => TimeCorrection[v])}${sel('자시 처리', 'jasi', [0, 1], (v) => JasiMode[v])}
       <div class="tiny soft">한국 표준시는 동경 135° 기준이라 서울에서는 실제 해의 위치보다 약 32분 빨라요. 대부분의 만세력은 경도 보정을 써요. 자시 처리는 학파마다 달라요.</div></section>
@@ -378,7 +378,16 @@ document.addEventListener('keydown', (e) => {
 });
 // 날짜가 바뀌면 오늘로 (앱을 켜 둔 채 자정을 넘긴 경우)
 let lastToday = today().join('-');
-setInterval(() => { const t = today().join('-'); if (t !== lastToday) { if (S.day.join('-') === lastToday) S.day = today(); lastToday = t; render(); } }, 60000);
+function syncToday() {
+  const t = today().join('-'); if (t === lastToday) return;
+  if (S.day.join('-') === lastToday) S.day = today();
+  if (S.month.join('-') === lastToday.split('-').slice(0, 2).join('-')) S.month = today().slice(0, 2);
+  lastToday = t; render();
+}
+setInterval(syncToday, 60000);
+// 휴대폰은 백그라운드에서 타이머를 멈추므로, 다시 볼 때 바로 확인
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncToday(); });
+window.addEventListener('pageshow', syncToday);
 
 render();
 keepOnDevice();
